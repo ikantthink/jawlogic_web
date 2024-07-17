@@ -35,6 +35,10 @@
             background-color: pink;
             color: white;
         }
+        #addPlanes {
+            background-color: #444;
+            color: white;
+        }
         #container {
             width: 100%;
             height: calc(100vh - 60px);
@@ -54,7 +58,7 @@
         .hidden {
             display: none;
         }
-        #radiusLabel {
+        #radiusLabel, #plane0Label, #plane1Label, #plane2Label {
             position: absolute;
             top: 60px;
             left: 20px;
@@ -63,6 +67,12 @@
             padding: 10px;
             border-radius: 8px;
             display: none;
+        }
+        #plane1Label {
+            top: 100px;
+        }
+        #plane2Label {
+            top: 140px;
         }
     </style>
 </head>
@@ -77,11 +87,15 @@
         <button id="viewBack" class="hidden">Back</button>
         <button id="centerModel" class="hidden">Center Model</button>
         <button id="tryForMonson" class="hidden">Try for Monson</button>
+        <button id="addPlanes" class="hidden">Add Planes</button>
         <input type="file" id="fileInput" style="display: none;">
     </div>
     <div id="container">
         <div id="loadingIndicator">Loading...</div>
         <div id="radiusLabel">Radius: 0 mm</div>
+        <div id="plane0Label">Plane 0 Z: 0 mm</div>
+        <div id="plane1Label">Plane 1 X: 0 mm</div>
+        <div id="plane2Label">Plane 2 X: 0 mm</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -89,8 +103,12 @@
     <script src="https://cdn.jsdelivr.net/npm/three/examples/js/loaders/STLLoader.js"></script>
     <script>
         let container, camera, scene, renderer, controls;
-        let stlLoader, mesh, monsonSphere, centerSphere;
+        let stlLoader, mesh, monsonSphere, centerSphere, plane0, plane1, plane2;
         const X = 10;
+        let selectedPlane = null;
+        let isDragging = false;
+        let dragStart = new THREE.Vector2();
+        let dragOffset = 0;
 
         init();
         animate();
@@ -153,8 +171,13 @@
             document.getElementById('viewBack').addEventListener('click', () => setView('back'));
             document.getElementById('centerModel').addEventListener('click', centerModel);
             document.getElementById('tryForMonson').addEventListener('click', toggleMonson);
+            document.getElementById('addPlanes').addEventListener('click', addPlanes);
 
             window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('keydown', onKeyDown, false);
+            window.addEventListener('mousedown', onMouseDown, false);
+            window.addEventListener('mousemove', onMouseMove, false);
+            window.addEventListener('mouseup', onMouseUp, false);
 
             // Global error handling
             window.addEventListener('error', function(event) {
@@ -316,10 +339,158 @@
             }
         }
 
+        function addPlanes() {
+            if (mesh) {
+                const box = new THREE.Box3().setFromObject(mesh);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+
+                const planeGeometry0 = new THREE.PlaneGeometry(size.x * 1.2, size.z * 1.2);
+                const planeGeometry1 = new THREE.PlaneGeometry(size.x * 1.2, size.y * 1.2);
+                const planeGeometry2 = new THREE.PlaneGeometry(size.z * 1.2, size.y * 1.2);
+
+                // Horizontal plane (plane 0)
+                const plane0Material = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
+                plane0 = new THREE.Mesh(planeGeometry0, plane0Material);
+                plane0.rotation.x = -Math.PI / 2;
+                plane0.position.y = center.y;
+                plane0.name = 'plane0';
+                plane0.userData = { originalColor: 0x00ff00 };
+                scene.add(plane0);
+
+                // Vertical plane 1
+                const plane1Material = new THREE.MeshBasicMaterial({ color: 0xffa500, transparent: true, opacity: 0.5 });
+                plane1 = new THREE.Mesh(planeGeometry1, plane1Material);
+                plane1.rotation.y = Math.PI / 2;
+                plane1.position.x = center.x - size.x / 3;
+                plane1.position.y = center.y;
+                plane1.name = 'plane1';
+                plane1.userData = { originalColor: 0xffa500 };
+                scene.add(plane1);
+
+                // Vertical plane 2
+                const plane2Material = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 });
+                plane2 = new THREE.Mesh(planeGeometry2, plane2Material);
+                plane2.rotation.y = 0;
+                plane2.position.z = center.z + size.z / 3;
+                plane2.position.y = center.y;
+                plane2.name = 'plane2';
+                plane2.userData = { originalColor: 0x00ffff };
+                scene.add(plane2);
+
+                document.getElementById('tryForMonson').classList.remove('hidden');
+                document.getElementById('plane0Label').style.display = 'block';
+                document.getElementById('plane1Label').style.display = 'block';
+                document.getElementById('plane2Label').style.display = 'block';
+                updatePlaneLabels();
+            }
+        }
+
+        function updatePlaneLabels() {
+            if (plane0) document.getElementById('plane0Label').textContent = `Plane 0 Z: ${plane0.position.y.toFixed(2)} mm`;
+            if (plane1) document.getElementById('plane1Label').textContent = `Plane 1 X: ${plane1.position.x.toFixed(2)} mm`;
+            if (plane2) document.getElementById('plane2Label').textContent = `Plane 2 Z: ${plane2.position.z.toFixed(2)} mm`;
+        }
+
         function onWindowResize() {
             camera.aspect = window.innerWidth / (window.innerHeight - 60);
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight - 60);
+        }
+
+        function onKeyDown(event) {
+            if (!selectedPlane) return;
+            const moveDistance = 0.1;
+            switch (event.key) {
+                case 'ArrowUp':
+                    if (selectedPlane.name === 'plane0') {
+                        selectedPlane.position.y += moveDistance;
+                    }
+                    break;
+                case 'ArrowDown':
+                    if (selectedPlane.name === 'plane0') {
+                        selectedPlane.position.y -= moveDistance;
+                    }
+                    break;
+                case 'ArrowLeft':
+                    if (selectedPlane.name === 'plane1' || selectedPlane.name === 'plane2') {
+                        selectedPlane.position.x -= moveDistance;
+                    }
+                    break;
+                case 'ArrowRight':
+                    if (selectedPlane.name === 'plane1' || selectedPlane.name === 'plane2') {
+                        selectedPlane.position.x += moveDistance;
+                    }
+                    break;
+            }
+            updatePlaneLabels();
+        }
+
+        function onMouseDown(event) {
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(scene.children);
+
+            if (intersects.length > 0) {
+                const intersected = intersects[0].object;
+                if (intersected.name.startsWith('plane')) {
+                    if (selectedPlane && selectedPlane !== intersected) {
+                        outlinePlane(selectedPlane, false);
+                    }
+                    selectedPlane = intersected;
+                    outlinePlane(selectedPlane, true);
+                    isDragging = true;
+                    dragStart.set(event.clientX, event.clientY);
+                    dragOffset = selectedPlane.position.y;
+                } else {
+                    outlinePlane(selectedPlane, false);
+                    selectedPlane = null;
+                }
+            } else {
+                outlinePlane(selectedPlane, false);
+                selectedPlane = null;
+            }
+        }
+
+        function onMouseMove(event) {
+            if (isDragging && selectedPlane) {
+                const mouse = new THREE.Vector2();
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+
+                const intersects = raycaster.intersectObjects(scene.children);
+                if (intersects.length > 0) {
+                    const intersected = intersects[0].object;
+                    if (intersected === selectedPlane) {
+                        const delta = new THREE.Vector2(event.clientX - dragStart.x, event.clientY - dragStart.y);
+                        if (selectedPlane.name === 'plane0') {
+                            selectedPlane.position.y = dragOffset + delta.y * 0.01;
+                        } else if (selectedPlane.name === 'plane1') {
+                            selectedPlane.position.x = dragOffset + delta.x * 0.01;
+                        } else if (selectedPlane.name === 'plane2') {
+                            selectedPlane.position.z = dragOffset + delta.x * 0.01;
+                        }
+                        updatePlaneLabels();
+                    }
+                }
+            }
+        }
+
+        function onMouseUp(event) {
+            isDragging = false;
+        }
+
+        function outlinePlane(plane, highlight) {
+            if (!plane) return;
+            plane.material.color.set(highlight ? 0xffff00 : plane.userData.originalColor);
         }
 
         function animate() {
