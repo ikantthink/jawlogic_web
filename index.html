@@ -54,6 +54,16 @@
         .hidden {
             display: none;
         }
+        #radiusLabel {
+            position: absolute;
+            top: 60px;
+            left: 20px;
+            color: white;
+            background-color: #222;
+            padding: 10px;
+            border-radius: 8px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -71,6 +81,7 @@
     </div>
     <div id="container">
         <div id="loadingIndicator">Loading...</div>
+        <div id="radiusLabel">Radius: 0 mm</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -79,6 +90,7 @@
     <script>
         let container, camera, scene, renderer, controls;
         let stlLoader, mesh, monsonSphere, centerSphere;
+        const X = 10;
 
         init();
         animate();
@@ -110,9 +122,25 @@
             const ambientLight = new THREE.AmbientLight(0x555555);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff);
-            directionalLight.position.set(1, 1, 1).normalize();
-            scene.add(directionalLight);
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff);
+            directionalLight1.position.set(1, 1, 1).normalize();
+            scene.add(directionalLight1);
+
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff);
+            directionalLight2.position.set(-1, 1, -1).normalize();
+            scene.add(directionalLight2);
+
+            const directionalLight3 = new THREE.DirectionalLight(0xffffff);
+            directionalLight3.position.set(1, -1, 1).normalize();
+            scene.add(directionalLight3);
+
+            const directionalLight4 = new THREE.DirectionalLight(0xffffff);
+            directionalLight4.position.set(-1, -1, -1).normalize();
+            scene.add(directionalLight4);
+
+            // Grid Helper
+            const gridHelper = new THREE.GridHelper(10 * X, 10, 0x222222, 0x222222);
+            scene.add(gridHelper);
 
             // Event listeners
             document.getElementById('loadModel').addEventListener('click', () => document.getElementById('fileInput').click());
@@ -124,7 +152,7 @@
             document.getElementById('viewFront').addEventListener('click', () => setView('front'));
             document.getElementById('viewBack').addEventListener('click', () => setView('back'));
             document.getElementById('centerModel').addEventListener('click', centerModel);
-            document.getElementById('tryForMonson').addEventListener('click', tryForMonson);
+            document.getElementById('tryForMonson').addEventListener('click', toggleMonson);
 
             window.addEventListener('resize', onWindowResize, false);
 
@@ -150,9 +178,11 @@
                         }
                         if (monsonSphere) {
                             scene.remove(monsonSphere);
+                            monsonSphere = null;
                         }
                         if (centerSphere) {
                             scene.remove(centerSphere);
+                            centerSphere = null;
                         }
                         mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xff69b4 })); // Pink color
                         scene.add(mesh);
@@ -220,9 +250,35 @@
                 camera.far = maxDim * 100;
                 camera.updateProjectionMatrix();
 
-                controls.maxDistance = maxDim * 10;
+                controls.maxDistance = maxDim * X;
+                controls.minDistance = maxDim / X;
                 controls.target.copy(center);
                 controls.update();
+
+                // Add fog to the scene
+                scene.fog = new THREE.FogExp2(0x333333, 0.0025 / X);
+
+                // Adjust grid size
+                scene.remove(scene.getObjectByName('gridHelper'));
+                const gridHelper = new THREE.GridHelper(maxDim * X * 1.1, 10, 0x333333, 0x333333);
+                gridHelper.name = 'gridHelper';
+                scene.add(gridHelper);
+            }
+        }
+
+        function toggleMonson() {
+            const button = document.getElementById('tryForMonson');
+            const radiusLabel = document.getElementById('radiusLabel');
+            if (monsonSphere && centerSphere) {
+                scene.remove(monsonSphere);
+                scene.remove(centerSphere);
+                monsonSphere = null;
+                centerSphere = null;
+                button.textContent = "Try for Monson";
+                radiusLabel.style.display = 'none';
+            } else {
+                tryForMonson();
+                button.textContent = "Remove Monson";
             }
         }
 
@@ -235,22 +291,28 @@
                 // Calculate the radius of the Monson sphere
                 const radius = size.length() / 2;
 
-                // Create the Monson sphere
+                // Create the Monson sphere with wireframe
                 const sphereGeometry = new THREE.SphereGeometry(radius, 32, 32);
-                const sphereMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
-                monsonSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                const wireframe = new THREE.WireframeGeometry(sphereGeometry);
+                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffff00 });
+                monsonSphere = new THREE.LineSegments(wireframe, lineMaterial);
 
-                // Position the Monson sphere so that it touches the top of the model```html
+                // Position the Monson sphere so that it touches the top of the model
                 monsonSphere.position.set(center.x, box.max.y + radius, center.z);
                 scene.add(monsonSphere);
 
                 // Create a small red sphere at the center of the Monson sphere
-                const centerSphereGeometry = new THREE.SphereGeometry(radius * 0.1, 32, 32);
+                const centerSphereGeometry = new THREE.SphereGeometry(radius * 0.1, 8, 8);
                 const centerSphereMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
                 centerSphere = new THREE.Mesh(centerSphereGeometry, centerSphereMaterial);
 
                 centerSphere.position.copy(monsonSphere.position);
                 scene.add(centerSphere);
+
+                // Display the radius
+                const radiusLabel = document.getElementById('radiusLabel');
+                radiusLabel.textContent = `Radius: ${(radius * 2).toFixed(2)} mm`;
+                radiusLabel.style.display = 'block';
             }
         }
 
